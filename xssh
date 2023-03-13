@@ -9,38 +9,60 @@
 
 set -euo pipefail
 
-connections_dir="${XSSH_DIR:-~/.ssh/connections}"
-connections_dir="${connections_dir/#~/$HOME}"  # заменить '~' на домашний каталог пользователя
-connections_dir="${connections_dir%/}/"  # добавить слэш в конце, если его ещё нет
+config_dir=${XDG_CONFIG_HOME:-$HOME/.config/xssh}
+config_file=$config_dir/xssh.conf
 
-if [[ $# -eq 0 ]]
+mkdir -p $config_dir
+if [[ ! -e $config_file ]]
 then
-    tempfile="$(mktemp --quiet --tmpdir --suffix=.txt xssh-XXXX)"
-
-    ranger --choosefile="$tempfile" $connections_dir || (rm "$tempfile"; exit 1)  # В работе ranger произошла ошибка
-
-    connection_file="$(cat "$tempfile")"
-    rm "$tempfile"
-
-    [[ -z "$connection_file" ]] && exit 1  # В ranger ничего не выбрано
-else
-    connection_file="$1"
+  cat > $config_file <<END
+XSSH_CONNECTIONS_DIR=~/.ssh/connections
+END
 fi
 
-connection_file_ext="${connection_file##*.}"
-connection_dir="$(dirname $connection_file)/"
-connection_path="${connection_dir#$connections_dir}"  # путь относительно $connections_dir
+source $config_file
 
-[[ "$connection_dir" == "$connection_path" ]] && exit 1  # выбранный файл не находится в поддиректории $connections_dir
-[[ "$connection_file_ext" == "yml" || "$connection_file_ext" == "yaml" ]] || exit 1
+# ******************************************************************************
+# main - Главная процедура, с которой начинается выполнение скрипта
+# ----
 
-conn_name=$(yq --raw-output --exit-status '.name' "$connection_file")
-conn_host=$(yq --raw-output --exit-status '.host' "$connection_file")
-conn_user=$(yq --raw-output --exit-status '.user' "$connection_file")
-conn_password=$(yq --raw-output '.password' "$connection_file")
-[[ "$conn_password" == "null" ]] && conn_password=""
+main()
+{
+    connections_dir="${XSSH_CONNECTIONS_DIR}"
+    connections_dir="${connections_dir/#~/$HOME}"  # заменить '~' на домашний каталог пользователя
+    connections_dir="${connections_dir%/}/"  # добавить слэш в конце, если его ещё нет
 
-echo -e "Connect to \033[1m${conn_name}\033[0m ($conn_host) in \033[1m${connection_path:-/}\033[0m as ${conn_user} ..."
-echo
+    if [[ $# -eq 0 ]]
+    then
+        tempfile="$(mktemp --quiet --tmpdir --suffix=.txt xssh-XXXX)"
 
-SSHPASS="$conn_password" sshpass -e ssh -o StrictHostKeyChecking=no ${conn_user}@${conn_host}
+        ranger --choosefile="$tempfile" $connections_dir || (rm "$tempfile"; return 1)  # В работе ranger произошла ошибка
+
+        connection_file="$(cat "$tempfile")"
+        rm "$tempfile"
+
+        [[ -z "$connection_file" ]] && return 1  # В ranger ничего не выбрано
+    else
+        connection_file="$1"
+    fi
+
+    connection_file_ext="${connection_file##*.}"
+    connection_dir="$(dirname $connection_file)/"
+    connection_path="${connection_dir#$connections_dir}"  # путь относительно $connections_dir
+
+    [[ "$connection_dir" == "$connection_path" ]] && return 1  # выбранный файл не находится в поддиректории $connections_dir
+    [[ "$connection_file_ext" == "yml" || "$connection_file_ext" == "yaml" ]] || return 1
+
+    conn_name=$(yq --raw-output --exit-status '.name' "$connection_file")
+    conn_host=$(yq --raw-output --exit-status '.host' "$connection_file")
+    conn_user=$(yq --raw-output --exit-status '.user' "$connection_file")
+    conn_password=$(yq --raw-output '.password' "$connection_file")
+    [[ "$conn_password" == "null" ]] && conn_password=""
+
+    echo -e "Connect to \033[1m${conn_name}\033[0m ($conn_host) in \033[1m${connection_path:-/}\033[0m as ${conn_user} ..."
+    echo
+
+    SSHPASS="$conn_password" sshpass -e ssh -o StrictHostKeyChecking=no ${conn_user}@${conn_host}
+}
+
+main $*
