@@ -3,8 +3,7 @@ name: Make release assets
 on:
   release:
     types:
-      - published
-  workflow_dispatch:
+      - created
 
 jobs:
   assets:
@@ -16,7 +15,7 @@ jobs:
           fetch-depth: 1
 
       - name: Upload assets
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
