@@ -6,7 +6,7 @@ on:
       - created
 
 jobs:
-  assets:
+  make-assets:
     runs-on: ubuntu-latest
     steps:
 
