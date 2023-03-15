@@ -15,11 +15,10 @@ jobs:
           fetch-depth: 1
 
       - name: Upload assets
-        uses: actions/upload-release-asset@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: shogo82148/actions-upload-release-asset@v1
         with:
           upload_url: ${{ github.event.release.upload_url }}
           asset_path: ./xssh
           asset_name: xssh
           asset_content_type: application/x-sh
+          overwrite: true
