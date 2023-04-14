@@ -53,10 +53,13 @@ main()
     [[ "$connection_dir" == "$connection_path" ]] && return 1  # выбранный файл не находится в поддиректории $connections_dir
     [[ "$connection_file_ext" == "yml" || "$connection_file_ext" == "yaml" ]] || return 1
 
-    conn_name=$(yq --raw-output --exit-status '.name' "$connection_file")
-    conn_host=$(yq --raw-output --exit-status '.host' "$connection_file")
-    conn_user=$(yq --raw-output --exit-status '.user' "$connection_file")
-    conn_password=$(yq --raw-output '.password' "$connection_file")
+    convert_python_script="import json, pathlib, yaml; print(json.dumps(yaml.safe_load(pathlib.Path('$connection_file').read_text())))"
+    connection_json="$(python3 -c "$convert_python_script")"
+
+    conn_name=$(echo "$connection_json" | jq --raw-output --exit-status '.name')
+    conn_host=$(echo "$connection_json" | jq --raw-output --exit-status '.host')
+    conn_user=$(echo "$connection_json" | jq --raw-output --exit-status '.user')
+    conn_password=$(echo "$connection_json" | jq --raw-output '.password')
     [[ "$conn_password" == "null" ]] && conn_password=""
 
     echo -e "Connect to \033[1m${conn_name}\033[0m ($conn_host) in \033[1m${connection_path:-/}\033[0m as ${conn_user} ..."
