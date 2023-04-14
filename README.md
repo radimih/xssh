@@ -13,6 +13,8 @@ SSH-соединения хранятся в виде отдельных фай�
 - `ranger`
 - `sshpass`
 
+Ansible-роль по установке скрипта: [github.com/radimih/dotfiles/ansible/roles/xssh](https://github.com/radimih/dotfiles/tree/master/ansible/roles/xssh)
+
 ## Конфигурация
 
 При запуске скрипта считывается конфигурационный файл `~/.config/xssh/xssh.conf`.
