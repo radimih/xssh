@@ -1,26 +1,15 @@
 #!/usr/bin/env bash
 
+# ******************************************************************************
 # Один YAML-файл описывает одно SSH-соединение. Формат:
 #
 # name: <произвольное название>
 # host: <IP или DNS-имя хоста>
 # user: <имя пользователя, под которым будет создано SSH-соединение>
 # [password: <пароль>]
+# ******************************************************************************
 
 set -euo pipefail
-
-config_dir=${XDG_CONFIG_HOME:-$HOME/.config/xssh}
-config_file=$config_dir/xssh.conf
-
-mkdir -p $config_dir
-if [[ ! -e $config_file ]]
-then
-  cat > $config_file <<END
-XSSH_CONNECTIONS_DIR=~/.ssh/connections
-END
-fi
-
-source $config_file
 
 # ******************************************************************************
 # main - Главная процедура, с которой начинается выполнение скрипта
@@ -28,44 +17,88 @@ source $config_file
 
 main()
 {
-    connections_dir="${XSSH_CONNECTIONS_DIR}"
-    connections_dir="${connections_dir/#~/$HOME}"  # заменить '~' на домашний каталог пользователя
-    connections_dir="${connections_dir%/}/"  # добавить слэш в конце, если его ещё нет
+    init
 
-    if [[ $# -eq 0 ]]
+    # Не выходить из скрипта по Ctrl-C
+    trap : SIGINT
+
+    BASE_DIR="${XSSH_CONNECTIONS_DIR}"
+    BASE_DIR="${BASE_DIR/#~/$HOME}"  # заменить '~' на домашний каталог пользователя
+    CURR_DIR="$BASE_DIR"
+
+    while choose_and_connect; do
+        :
+    done
+}
+
+# ******************************************************************************
+# init - Загрузить конфигурацию. Если её нет, она будет сформирована
+# ----
+
+init()
+{
+    local config_dir=${XDG_CONFIG_HOME:-$HOME/.config/xssh}
+    local config_file=$config_dir/xssh.conf
+
+    mkdir -p $config_dir
+    if [[ ! -e $config_file ]]
     then
-        tempfile="$(mktemp --quiet --tmpdir --suffix=.txt xssh-XXXX)"
-
-        ranger --choosefile="$tempfile" $connections_dir || (rm "$tempfile"; return 1)  # В работе ranger произошла ошибка
-
-        connection_file="$(cat "$tempfile")"
-        rm "$tempfile"
-
-        [[ -z "$connection_file" ]] && return 1  # В ranger ничего не выбрано
-    else
-        connection_file="$1"
+cat > $config_file <<END
+XSSH_CONNECTIONS_DIR=~/.ssh/connections
+XSSH_CONNECT_TIMEOUT=10
+END
     fi
 
-    connection_file_ext="${connection_file##*.}"
-    connection_dir="$(dirname $connection_file)/"
-    connection_path="${connection_dir#$connections_dir}"  # путь относительно $connections_dir
+    source $config_file
+}
 
-    [[ "$connection_dir" == "$connection_path" ]] && return 1  # выбранный файл не находится в поддиректории $connections_dir
-    [[ "$connection_file_ext" == "yml" || "$connection_file_ext" == "yaml" ]] || return 1
+# ******************************************************************************
+# choose_and_connect - Выбрать файл соединения и инициировать SSH-соединение
+# ------------------
+# Используются глобальные переменные:
+#
+#   BASE_DIR - каталог, в котором располагаются файлы соединений
+#   CURR_DIR - последний выбранный каталог
 
-    convert_python_script="import json, pathlib, yaml; print(json.dumps(yaml.safe_load(pathlib.Path('$connection_file').read_text())))"
-    connection_json="$(python3 -c "$convert_python_script")"
+choose_and_connect()
+{
+    local connections_dir="${CURR_DIR%/}/"  # добавить слэш в конце, если его ещё нет
 
-    conn_name=$(echo "$connection_json" | jq --raw-output --exit-status '.name')
-    conn_host=$(echo "$connection_json" | jq --raw-output --exit-status '.host')
-    conn_user=$(echo "$connection_json" | jq --raw-output --exit-status '.user')
-    conn_password=$(echo "$connection_json" | jq --raw-output '.password')
+    local tempfile="$(mktemp --quiet --tmpdir --suffix=.txt xssh-XXXX)"
+
+    ranger --choosefile="$tempfile" $connections_dir || (rm "$tempfile"; return 1)  # В работе ranger произошла ошибка
+
+    local connection_file="$(cat "$tempfile")"
+    rm "$tempfile"
+
+    [[ -z "$connection_file" ]] && return 1  # В ranger ничего не выбрано
+
+    local connection_file_ext="${connection_file##*.}"
+    local connection_dir="$(dirname $connection_file)/"
+    local connection_path="${connection_dir#$BASE_DIR}"  # путь относительно $BASE_DIR
+
+    [[ "$connection_dir" == "$connection_path" ]] && return 0  # выбранный файл не находится в поддиректории $connections_dir
+    [[ "$connection_file_ext" == "yml" || "$connection_file_ext" == "yaml" ]] || return 0
+
+    local convert_python_script="import json, pathlib, yaml; print(json.dumps(yaml.safe_load(pathlib.Path('$connection_file').read_text())))"
+    local connection_json="$(python3 -c "$convert_python_script")"
+
+    local conn_name=$(echo "$connection_json" | jq --raw-output --exit-status '.name')
+    local conn_host=$(echo "$connection_json" | jq --raw-output --exit-status '.host')
+    local conn_user=$(echo "$connection_json" | jq --raw-output --exit-status '.user')
+    local conn_password=$(echo "$connection_json" | jq --raw-output '.password')
     [[ "$conn_password" == "null" ]] && conn_password=""
 
     echo -e "Connect to \033[1m${conn_name}\033[0m ($conn_host) in \033[1m${connection_path:-/}\033[0m as ${conn_user} ..."
     echo
 
-    SSHPASS="$conn_password" sshpass -e ssh -o StrictHostKeyChecking=no ${conn_user}@${conn_host}
+    SSHPASS="$conn_password" sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=${XSSH_CONNECT_TIMEOUT} ${conn_user}@${conn_host}
+    if [[ $? -ne 0 ]]; then
+        echo -n "Ошибка. Нажмите Enter для продолжения"
+        read -r
+    fi
+
+    CURR_DIR=$connection_dir
 }
 
-main $*
+main
